@@ -197,6 +197,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 			c.trace("read from conn, n = %d", n)
 			break
 		}
+		base.Close()
 
 		if c.listener == nil {
 			go c.tryReconn(base)
@@ -244,6 +245,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	if err == nil {
 		return
 	}
+	base.Close()
 
 	if c.listener == nil {
 		go c.tryReconn(base)
@@ -265,7 +267,6 @@ func (c *Conn) waitReconn(who byte, waitFlag *bool, waitChan chan struct{}) bool
 		timeout.Stop()
 	}()
 
-	c.base.Close()
 	c.reconnMutex.RUnlock()
 	defer c.reconnMutex.RLock()
 
@@ -316,7 +317,6 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 
 func (c *Conn) tryReconn(badConn net.Conn) {
 	c.trace("tryReconn() wait Read() or Write()")
-	c.base.Close()
 	c.reconnMutex.Lock()
 	defer c.reconnMutex.Unlock()
 	c.trace("tryReconn() begin")
