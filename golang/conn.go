@@ -266,14 +266,20 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	return
 }
 
-func (c *Conn) waitReconn(who byte, waitChan chan struct{}) bool {
+func (c *Conn) waitReconn(who byte, waitChan chan struct{}) (done bool) {
 	c.trace("waitReconn('%c', \"%s\")", who, c.reconnWaitTimeout)
 
 	timeout := time.NewTimer(c.reconnWaitTimeout)
 	defer timeout.Stop()
 
 	c.reconnMutex.RUnlock()
-	defer c.reconnMutex.RLock()
+	defer func() {
+		c.reconnMutex.RLock()
+		if done {
+			<-waitChan
+			c.trace("waitReconn('%c', \"%s\") done", who, c.reconnWaitTimeout)
+		}
+	}()
 
 	var lsnCloseChan chan struct{}
 	if c.listener == nil {
@@ -284,24 +290,26 @@ func (c *Conn) waitReconn(who byte, waitChan chan struct{}) bool {
 
 	select {
 	case <-waitChan:
-		c.trace("waitReconn('%c', \"%s\") done", who, c.reconnWaitTimeout)
-		return true
+		done = true
+		c.trace("waitReconn('%c', \"%s\") wake up", who, c.reconnWaitTimeout)
+		return
 	case <-c.closeChan:
 		c.trace("waitReconn('%c', \"%s\") closed", who, c.reconnWaitTimeout)
-		return false
+		return
 	case <-timeout.C:
 		c.trace("waitReconn('%c', \"%s\") timeout", who, c.reconnWaitTimeout)
 		c.Close()
-		return false
+		return
 	case <-lsnCloseChan:
 		c.trace("waitReconn('%c', \"%s\") listener closed", who, c.reconnWaitTimeout)
-		return false
+		return
 	}
 }
 
 func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 	var done bool
 
+	c.trace("handleReconn() wait handleReconn()")
 	c.reconnOpMutex.Lock()
 	defer c.reconnOpMutex.Unlock()
 
@@ -334,10 +342,11 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 func (c *Conn) tryReconn(badConn net.Conn) {
 	var done bool
 
-	c.trace("tryReconn() wait Read() or Write()")
+	c.trace("tryReconn() wait tryReconn()")
 	c.reconnOpMutex.Lock()
 	defer c.reconnOpMutex.Unlock()
 
+	c.trace("tryReconn() wait Read() or Write()")
 	badConn.Close()
 	c.reconnMutex.Lock()
 	readWaiting := c.readWaiting
@@ -457,22 +466,28 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 func (c *Conn) wakeUp(readWaiting, writeWaiting bool) {
 	if readWaiting {
 		c.trace("continue read")
-		select {
-		case c.readWaitChan <- struct{}{}:
-		case <-c.closeChan:
-			c.trace("continue read closed")
-			return
+		// make sure reader take over reconnMutex
+		for i := 0; i < 2; i++ {
+			select {
+			case c.readWaitChan <- struct{}{}:
+			case <-c.closeChan:
+				c.trace("continue read closed")
+				return
+			}
 		}
 		c.trace("continue read done")
 	}
 
 	if writeWaiting {
 		c.trace("continue write")
-		select {
-		case c.writeWaitChan <- struct{}{}:
-		case <-c.closeChan:
-			c.trace("continue write closed")
-			return
+		// make sure writer take over reconnMutex
+		for i := 0; i < 2; i++ {
+			select {
+			case c.writeWaitChan <- struct{}{}:
+			case <-c.closeChan:
+				c.trace("continue write closed")
+				return
+			}
 		}
 		c.trace("continue write done")
 	}
