@@ -6,9 +6,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/funny/crypto/dh64/go"
@@ -45,7 +43,7 @@ type Conn struct {
 	readCipher *rc4.Cipher
 
 	reconnMutex       sync.RWMutex
-	reconnWait        int32
+	reconnOpMutex     sync.Mutex
 	readWaiting       bool
 	writeWaiting      bool
 	readWaitChan      chan struct{}
@@ -275,10 +273,7 @@ func (c *Conn) waitReconn(who byte, waitChan chan struct{}) bool {
 	defer timeout.Stop()
 
 	c.reconnMutex.RUnlock()
-	defer func() {
-		c.reconnMutex.RLock()
-		atomic.AddInt32(&c.reconnWait, -1)
-	}()
+	defer c.reconnMutex.RLock()
 
 	var lsnCloseChan chan struct{}
 	if c.listener == nil {
@@ -305,17 +300,24 @@ func (c *Conn) waitReconn(who byte, waitChan chan struct{}) bool {
 }
 
 func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
-	for i := 0; i < 10; i++ {
-		if atomic.LoadInt32(&c.reconnWait) == 0 {
-			break
-		}
-		runtime.Gosched()
-	}
+	var done bool
+
+	c.reconnOpMutex.Lock()
+	defer c.reconnOpMutex.Unlock()
 
 	c.base.Close()
 	c.trace("handleReconn() wait Read() or Write()")
 	c.reconnMutex.Lock()
-	defer c.reconnMutex.Unlock()
+	readWaiting := c.readWaiting
+	writeWaiting := c.writeWaiting
+	defer func() {
+		c.reconnMutex.Unlock()
+		if done {
+			c.wakeUp(readWaiting, writeWaiting)
+		} else {
+			conn.Close()
+		}
+	}()
 	c.trace("handleReconn() begin")
 
 	var buf [16]byte
@@ -323,20 +325,29 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 	binary.LittleEndian.PutUint64(buf[8:16], c.readCount)
 	if _, err := conn.Write(buf[:16]); err != nil {
 		c.trace("response failed")
-		conn.Close()
 		return
 	}
 
-	if !c.doReconn(conn, writeCount, readCount) {
-		conn.Close()
-	}
+	done = c.doReconn(conn, writeCount, readCount)
 }
 
 func (c *Conn) tryReconn(badConn net.Conn) {
+	var done bool
+
 	c.trace("tryReconn() wait Read() or Write()")
+	c.reconnOpMutex.Lock()
+	defer c.reconnOpMutex.Unlock()
+
 	badConn.Close()
 	c.reconnMutex.Lock()
-	defer c.reconnMutex.Unlock()
+	readWaiting := c.readWaiting
+	writeWaiting := c.writeWaiting
+	defer func() {
+		c.reconnMutex.Unlock()
+		if done {
+			c.wakeUp(readWaiting, writeWaiting)
+		}
+	}()
 	c.trace("tryReconn() begin")
 
 	if badConn != c.base {
@@ -383,6 +394,7 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 		writeCount := binary.LittleEndian.Uint64(buf2[0:8])
 		readCount := binary.LittleEndian.Uint64(buf2[8:16])
 		if c.doReconn(conn, writeCount, readCount) {
+			done = true
 			break
 		}
 		conn.Close()
@@ -438,30 +450,30 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 		c.trace("reread done")
 	}
 
-	if c.readWaiting {
-		c.reconnWait++
+	c.base = conn
+	return true
+}
+
+func (c *Conn) wakeUp(readWaiting, writeWaiting bool) {
+	if readWaiting {
 		c.trace("continue read")
 		select {
 		case c.readWaitChan <- struct{}{}:
 		case <-c.closeChan:
 			c.trace("continue read closed")
-			return false
+			return
 		}
 		c.trace("continue read done")
 	}
 
-	if c.writeWaiting {
-		c.reconnWait++
+	if writeWaiting {
 		c.trace("continue write")
 		select {
 		case c.writeWaitChan <- struct{}{}:
 		case <-c.closeChan:
 			c.trace("continue write closed")
-			return false
+			return
 		}
 		c.trace("continue write done")
 	}
-
-	c.base = conn
-	return true
 }
