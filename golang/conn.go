@@ -295,9 +295,9 @@ func (c *Conn) waitReconn(who byte, waitFlag *bool, waitChan chan struct{}) bool
 
 func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 	c.trace("handleReconn() wait Read() or Write()")
-	c.base.Close()
 	c.reconnMutex.Lock()
 	defer c.reconnMutex.Unlock()
+	c.base.Close()
 	c.trace("handleReconn() begin")
 
 	var buf [16]byte
