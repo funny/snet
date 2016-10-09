@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/funny/crypto/dh64/go"
@@ -43,6 +45,7 @@ type Conn struct {
 	readCipher *rc4.Cipher
 
 	reconnMutex       sync.RWMutex
+	reconnWait        int32
 	readWaiting       bool
 	writeWaiting      bool
 	readWaitChan      chan struct{}
@@ -178,11 +181,15 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 
 	c.trace("Read() wait write")
 	c.readMutex.Lock()
-	defer c.readMutex.Unlock()
-
 	c.trace("Read() wait reconn")
 	c.reconnMutex.RLock()
-	defer c.reconnMutex.RUnlock()
+	c.readWaiting = true
+
+	defer func() {
+		c.readWaiting = false
+		c.reconnMutex.RUnlock()
+		c.readMutex.Unlock()
+	}()
 
 	for {
 		n, err = c.rereader.Pull(b), nil
@@ -203,7 +210,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 			go c.tryReconn(base)
 		}
 
-		if !c.waitReconn('r', &c.readWaiting, c.readWaitChan) {
+		if !c.waitReconn('r', c.readWaitChan) {
 			break
 		}
 	}
@@ -227,11 +234,15 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 
 	c.trace("Write() wait write")
 	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
-
 	c.trace("Write() wait reconn")
 	c.reconnMutex.RLock()
-	defer c.reconnMutex.RUnlock()
+	c.writeWaiting = true
+
+	defer func() {
+		c.writeWaiting = false
+		c.reconnMutex.RUnlock()
+		c.writeMutex.Unlock()
+	}()
 
 	if c.enableCrypt {
 		c.writeCipher.XORKeyStream(b, b)
@@ -251,24 +262,23 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		go c.tryReconn(base)
 	}
 
-	if c.waitReconn('w', &c.writeWaiting, c.writeWaitChan) {
+	if c.waitReconn('w', c.writeWaitChan) {
 		n, err = len(b), nil
 	}
 	return
 }
 
-func (c *Conn) waitReconn(who byte, waitFlag *bool, waitChan chan struct{}) bool {
+func (c *Conn) waitReconn(who byte, waitChan chan struct{}) bool {
 	c.trace("waitReconn('%c', \"%s\")", who, c.reconnWaitTimeout)
 
-	*waitFlag = true
 	timeout := time.NewTimer(c.reconnWaitTimeout)
-	defer func() {
-		*waitFlag = false
-		timeout.Stop()
-	}()
+	defer timeout.Stop()
 
 	c.reconnMutex.RUnlock()
-	defer c.reconnMutex.RLock()
+	defer func() {
+		c.reconnMutex.RLock()
+		atomic.AddInt32(&c.reconnWait, -1)
+	}()
 
 	var lsnCloseChan chan struct{}
 	if c.listener == nil {
@@ -295,6 +305,13 @@ func (c *Conn) waitReconn(who byte, waitFlag *bool, waitChan chan struct{}) bool
 }
 
 func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
+	for i := 0; i < 10; i++ {
+		if atomic.LoadInt32(&c.reconnWait) == 0 {
+			break
+		}
+		runtime.Gosched()
+	}
+
 	c.trace("handleReconn() wait Read() or Write()")
 	c.reconnMutex.Lock()
 	defer c.reconnMutex.Unlock()
@@ -422,6 +439,7 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 	}
 
 	if c.readWaiting {
+		c.reconnWait++
 		c.trace("continue read")
 		select {
 		case c.readWaitChan <- struct{}{}:
@@ -433,6 +451,7 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 	}
 
 	if c.writeWaiting {
+		c.reconnWait++
 		c.trace("continue write")
 		select {
 		case c.writeWaitChan <- struct{}{}:
