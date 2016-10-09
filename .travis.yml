@@ -8,9 +8,7 @@ install:
     - go get -t -v ./...
 
 script:
-    - go vet -x
     - go vet -x github.com/funny/snet/golang
-    - go install
     - go install github.com/funny/snet/golang
     - go test -race -coverprofile=coverage.txt -covermode=atomic -v github.com/funny/snet/golang
 
