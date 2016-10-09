@@ -317,6 +317,7 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 
 func (c *Conn) tryReconn(badConn net.Conn) {
 	c.trace("tryReconn() wait Read() or Write()")
+	badConn.Close()
 	c.reconnMutex.Lock()
 	defer c.reconnMutex.Unlock()
 	c.trace("tryReconn() begin")
