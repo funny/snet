@@ -1,6 +1,11 @@
 介绍
 ====
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/funny/snet)](https://goreportcard.com/report/github.com/funny/snet)
+[![Build Status](https://travis-ci.org/funny/snet.svg?branch=master)](https://travis-ci.org/funny/snet)
+[![codecov](https://codecov.io/gh/funny/snet/branch/master/graph/badge.svg)](https://codecov.io/gh/funny/snet)
+[![GoDoc](https://img.shields.io/badge/api-reference-blue.svg)](https://godoc.org/github.com/funny/snet/golang)
+
 本项目在TCP/IP协议之上构建了一套支持重连和加密的流式网络通讯协议。
 
 此协议的实现目的主要是提升长连接型应用在移动终端上的连接稳定性。
