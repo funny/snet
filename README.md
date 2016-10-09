@@ -87,8 +87,14 @@
 
 本协议目前有以下编程语言的实现：
 
-+ Go (可直接替代net.Conn)
++ [Go (可直接替代net.Conn)](https://github.com/funny/snet/tree/master/golang)
 + C# (可直接替代Stream)
+
+资料
+=======
+
++ [在移动网络上创建更稳定的连接](http://blog.codingnow.com/2014/02/connection_reuse.html) by [云风](https://github.com/cloudwu)
++ [迪菲－赫尔曼密钥交换](https://zh.wikipedia.org/wiki/%E8%BF%AA%E8%8F%B2%EF%BC%8D%E8%B5%AB%E5%B0%94%E6%9B%BC%E5%AF%86%E9%92%A5%E4%BA%A4%E6%8D%A2)
 
 TODO
 ====
