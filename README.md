@@ -12,10 +12,10 @@
 
 以期在可能的情况下尽量保证用户体验的连贯性，同时又不需要对已有代码做大量的修改。
 
-协议设计
-=======
+协议
+====
 
-基础逻辑：
+基本流程：
 
 + 客户端连接服务端时，协议采用DH密钥交换算法和服务端之间协商出一个通讯密钥
 + 在后续的通讯过程中，双方使用这个密钥对通讯内容进行RC4流式加密
@@ -92,8 +92,8 @@
 
 本协议目前有以下编程语言的实现：
 
-+ [Go (可直接替代net.Conn)](https://github.com/funny/snet/tree/master/golang)
-+ C# (可直接替代Stream)
++ [Go版，可直接替代net.Conn，迁移成本极低](https://github.com/funny/snet/tree/master/golang)
++ [C#版，可直接替代Stream，迁移成本极低](https://github.com/funny/snet/tree/master/csharp)
 
 资料
 =======
