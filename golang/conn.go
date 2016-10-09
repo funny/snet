@@ -312,10 +312,10 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 		runtime.Gosched()
 	}
 
+	c.base.Close()
 	c.trace("handleReconn() wait Read() or Write()")
 	c.reconnMutex.Lock()
 	defer c.reconnMutex.Unlock()
-	c.base.Close()
 	c.trace("handleReconn() begin")
 
 	var buf [16]byte
