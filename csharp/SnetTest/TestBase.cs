@@ -7,11 +7,8 @@ namespace SnetTest
 		protected Random rand = new Random ();
 
 		protected byte[] RandBytes(int n) {
-			n = rand.Next (n) + 1;
 			var b = new byte[n];
-			for (var i = 0; i < n; i++) {
-				b [i] = (byte)rand.Next (255);
-			}
+			rand.NextBytes (b);
 			return b;
 		}
 
