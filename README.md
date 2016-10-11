@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/funny/snet)](https://goreportcard.com/report/github.com/funny/snet)
 [![Build Status](https://travis-ci.org/funny/snet.svg?branch=master)](https://travis-ci.org/funny/snet)
 [![codecov](https://codecov.io/gh/funny/snet/branch/master/graph/badge.svg)](https://codecov.io/gh/funny/snet)
-[![GoDoc](https://img.shields.io/badge/api-reference-blue.svg)](https://godoc.org/github.com/funny/snet/golang)
+[![GoDoc](https://img.shields.io/badge/api-reference-blue.svg)](https://godoc.org/github.com/funny/snet/go)
 
 本项目在TCP/IP协议之上构建了一套支持重连和加密的流式网络通讯协议。
 
@@ -30,7 +30,6 @@
 + 新建连接时，客户端发送16个字节的请求
 + 消息前8个字节全0
 + 消息后8个字节为DH密钥交换用的公钥
-+ 消息结构：
 
 	```
 	+---------+------------+
@@ -44,7 +43,6 @@
 + 当服务端收到新建连接请求后，下发16个字节的握手响应
 + 消息前8个字节为DH密钥交换用的公钥
 + 消息后8个字节为加密后的连接ID，加密所需密钥通过DH密钥交换算法计算得出
-+ 消息结构：
 
 	```
 	+------------+-----------------+
@@ -60,7 +58,6 @@
 + 消息的[8, 16)字节为客户端已发送字节数
 + 消息第[16, 24)字节为客户端已接收字节数
 + 消息第[24, 40)字节为消息前24个字节加通讯密钥计算得出的MD5哈希值
-+ 消息结构：
 
 	```
 	+---------+-------------+------------+---------+
@@ -78,7 +75,6 @@
 + 消息后8个字节为服务端已接收字节数
 + 紧接着服务端立即下发需要重传的数据
 + 客户端在收到重连响应后，比较收发字节数差值来读取服务端下发的重传数据
-+ 消息结构：
 
 	```
 	+-------------+------------+
@@ -104,13 +100,11 @@
 TODO
 ====
 
-还需完善的部分：
-
 + 自定义加密算法
 + 重连失败的响应
 
-参与项目
-=======
+参与
+====
 
 欢迎提交通过github的issues功能提交反馈或提问。
 
