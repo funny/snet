@@ -27,23 +27,28 @@ func (l *unstableListener) Accept() (net.Conn, error) {
 
 type unstableConn struct {
 	net.Conn
-	enable bool
+	wn int
+	rn int
 }
 
 func (c *unstableConn) Write(b []byte) (int, error) {
-	if c.enable {
+	if c.wn > 10 {
 		if rand.Intn(10000) < 500 {
 			c.Conn.Close()
 		}
+	} else {
+		c.wn++
 	}
 	return c.Conn.Write(b)
 }
 
 func (c *unstableConn) Read(b []byte) (int, error) {
-	if c.enable {
+	if c.rn > 10 {
 		if rand.Intn(10000) < 100 {
 			c.Conn.Close()
 		}
+	} else {
+		c.rn++
 	}
 	return c.Conn.Read(b)
 }
@@ -86,7 +91,7 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 			return
 		}
 		if unstable {
-			conn.(*Conn).base.(*unstableConn).enable = true
+			conn.(*Conn).base.(*unstableConn).wn = 11
 		}
 		io.Copy(conn, conn)
 		conn.Close()
@@ -95,7 +100,14 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 	}()
 
 	conn, err := Dial(config, func() (net.Conn, error) {
-		return net.Dial("tcp", listener.Addr().String())
+		conn, err := net.Dial("tcp", listener.Addr().String())
+		if err != nil {
+			return nil, err
+		}
+		if unstable {
+			return &unstableConn{Conn: conn}, nil
+		}
+		return conn, nil
 	})
 	if err != nil {
 		t.Fatalf("dial stable conn failed: %s", err.Error())
@@ -115,13 +127,7 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 	err = conn.SetWriteDeadline(time.Time{})
 	utest.IsNilNow(t, err)
 
-	uconn := &unstableConn{nil, unstable}
 	for i := 0; i < 100000; i++ {
-		if unstable && conn.(*Conn).base != uconn {
-			uconn.Conn = conn.(*Conn).base
-			conn.(*Conn).base = uconn
-		}
-
 		b := RandBytes(100)
 		c := b
 		if encrypt {
