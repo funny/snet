@@ -3,13 +3,14 @@ package snet
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/funny/utest"
 	"io"
 	"math/rand"
 	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/funny/utest"
 )
 
 type unstableListener struct {
@@ -56,7 +57,7 @@ func RandBytes(n int) []byte {
 	return b
 }
 
-func ConnTest(t *testing.T, unstable, encrypt bool) {
+func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 	config := Config{
 		EnableCrypt:        encrypt,
 		HandshakeTimeout:   time.Second * 5,
@@ -133,6 +134,10 @@ func ConnTest(t *testing.T, unstable, encrypt bool) {
 			return
 		}
 
+		if reconn && i%100 == 0 {
+			conn.(*Conn).TryReconn()
+		}
+
 		a := make([]byte, len(b))
 		if _, err := io.ReadFull(conn, a); err != nil {
 			t.Fatalf("read failed: %s", err.Error())
@@ -155,17 +160,33 @@ func ConnTest(t *testing.T, unstable, encrypt bool) {
 }
 
 func Test_Stable_NoEncrypt(t *testing.T) {
-	ConnTest(t, false, false)
+	ConnTest(t, false, false, false)
 }
 
 func Test_Unstable_NoEncrypt(t *testing.T) {
-	ConnTest(t, true, false)
+	ConnTest(t, true, false, false)
 }
 
 func Test_Stable_Encrypt(t *testing.T) {
-	ConnTest(t, false, true)
+	ConnTest(t, false, true, false)
 }
 
 func Test_Unstable_Encrypt(t *testing.T) {
-	ConnTest(t, true, true)
+	ConnTest(t, true, true, false)
+}
+
+func Test_Stable_NoEncrypt_Reconn(t *testing.T) {
+	ConnTest(t, false, false, true)
+}
+
+func Test_Unstable_NoEncrypt_Reconn(t *testing.T) {
+	ConnTest(t, true, false, true)
+}
+
+func Test_Stable_Encrypt_Reconn(t *testing.T) {
+	ConnTest(t, false, true, true)
+}
+
+func Test_Unstable_Encrypt_Reconn(t *testing.T) {
+	ConnTest(t, true, true, true)
 }

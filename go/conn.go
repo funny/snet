@@ -171,6 +171,13 @@ func (c *Conn) Close() error {
 	return c.base.Close()
 }
 
+func (c *Conn) TryReconn() {
+	if c.listener == nil {
+		base := c.base
+		go c.tryReconn(base)
+	}
+}
+
 func (c *Conn) Read(b []byte) (n int, err error) {
 	c.trace("Read(%d)", len(b))
 	if len(b) == 0 {
