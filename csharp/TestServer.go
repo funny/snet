@@ -9,7 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	snet "github.com/funny/snet/golang"
+	snet "github.com/funny/snet/go"
 	"strconv"
 	"syscall"
 	"time"

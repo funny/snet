@@ -301,6 +301,14 @@ namespace Snet
 			}
 		}
 
+		public bool TryReconn()
+		{
+			_ReconnLock.AcquireReaderLock (-1);
+			bool result = tryReconn();
+			_ReconnLock.ReleaseReaderLock ();
+			return result;
+		}
+
 		private bool tryReconn()
 		{
 			_BaseStream.Close ();
@@ -405,8 +413,17 @@ namespace Snet
 
 		public override void Flush ()
 		{
-			// TODO:
-			_BaseStream.Flush ();
+			_WriteLock.WaitOne ();
+			_ReconnLock.AcquireReaderLock (-1);
+			try {
+				_BaseStream.Flush ();
+			} catch {
+				if (!tryReconn())
+					throw;
+			} finally {
+				_ReconnLock.ReleaseReaderLock ();
+				_WriteLock.ReleaseMutex ();
+			}
 		}
 
 		public override void Close ()
