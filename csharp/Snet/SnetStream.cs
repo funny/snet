@@ -205,10 +205,10 @@ namespace Snet
 					while (ar3.ReadCount != count) {
 						ar3.ReadCount += Read(buffer, offset + ar3.ReadCount, count - ar3.ReadCount);
 					}
-					ar3.IsCompleted = true;
 				} catch(Exception ex) {
 					ar3.Error = ex;
 				}
+				ar3.IsCompleted = true;
 				((ManualResetEvent)ar3.AsyncWaitHandle).Set();
 				if (ar3.Callback != null)
 					ar3.Callback(ar3);
@@ -228,10 +228,10 @@ namespace Snet
 				AsyncResult ar3 = (AsyncResult)ar2;
 				try {
 					Write(buffer, offset, count);
-					ar3.IsCompleted = true;
 				} catch(Exception ex) {
 					ar3.Error = ex;
 				}
+				ar3.IsCompleted = true;
 				((ManualResetEvent)ar3.AsyncWaitHandle).Set();
 				if (ar3.Callback != null)
 					ar3.Callback(ar3);
