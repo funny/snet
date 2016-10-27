@@ -123,6 +123,7 @@ namespace Snet
 				} catch (Exception ex) {
 					ar3.Error = ex;
 				}
+				ar3.IsCompleted = true;
 				((ManualResetEvent)ar3.AsyncWaitHandle).Set();
 				if (ar3.Callback != null)
 					ar3.Callback(ar3);
@@ -132,6 +133,11 @@ namespace Snet
 		}
 
 		public void WaitConnect(IAsyncResult asyncResult)
+		{
+			((AsyncResult)asyncResult).Wait ();
+		}
+
+		public void EndConnect(IAsyncResult asyncResult)
 		{
 			((AsyncResult)asyncResult).Wait ();
 		}
