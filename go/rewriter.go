@@ -29,7 +29,7 @@ func (r *rewriter) Rewrite(w io.Writer, writeCount, readCount uint64) bool {
 	case n < 0 || n > len(r.data):
 		return false
 	case int(writeCount) <= len(r.data):
-		_, err := w.Write(r.data[readCount : int(readCount)+n])
+		_, err := w.Write(r.data[readCount:writeCount])
 		return err == nil
 	}
 

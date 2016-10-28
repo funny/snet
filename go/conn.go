@@ -433,6 +433,11 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 		return false
 	}
 
+	if int(c.writeCount-readCount) > len(c.rewriter.data) {
+		c.trace("c.writeCount - readCount > len(c.rewriter.data)")
+		return false
+	}
+
 	rereadWaitChan := make(chan bool)
 	if writeCount != c.readCount {
 		go func() {
