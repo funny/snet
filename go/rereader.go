@@ -50,6 +50,7 @@ func (r *rereader) Rollback() {
 	for item := r.head; item != nil; item = item.next {
 		if item.next == r.tail {
 			r.tail = item
+			item.next = nil
 			break
 		}
 	}
