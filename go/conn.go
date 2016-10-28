@@ -438,12 +438,14 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) (reconnDone
 		return
 	}
 
-	rereadWaitChan := make(chan bool)
 	if writeCount != c.readCount {
+		rereadWaitChan := make(chan bool)
+
 		defer func() {
 			c.trace("reread wait")
 
 			if !<-rereadWaitChan {
+				reconnDone = false
 				c.trace("reread failed")
 				return
 			}
