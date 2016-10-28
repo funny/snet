@@ -185,6 +185,35 @@ namespace SnetTest
 
 			var wait = new System.Threading.ManualResetEvent (false);
 
+			stream.BeginConnect ("127.0.0.1", 10014, (IAsyncResult ar) => {
+				try {
+					stream.EndConnect(ar);
+				} catch (Exception ex) {
+					err = ex.ToString ();
+				}
+				wait.Set();
+			}, null);
+
+			wait.WaitOne (new TimeSpan (0, 0, 4));
+
+			Assert.IsNotNull(err);
+
+			Console.WriteLine (err);
+		}
+
+		[Test()]
+		public void Test_ConnectTimeout()
+		{
+			var stream = new SnetStream (1024, false);
+
+			stream.ReadTimeout = 3000;
+			stream.WriteTimeout = 3000;
+			stream.ConnectTimeout = 3000;
+
+			string err = null;
+
+			var wait = new System.Threading.ManualResetEvent (false);
+
 			stream.BeginConnect ("192.168.2.20", 10000, (IAsyncResult ar) => {
 				try {
 					stream.EndConnect(ar);
@@ -194,8 +223,7 @@ namespace SnetTest
 				wait.Set();
 			}, null);
 
-			wait.WaitOne ();
-			//wait.WaitOne (new TimeSpan (0, 0, 4));
+			wait.WaitOne (new TimeSpan (0, 0, 4));
 
 			Assert.IsNotNull(err);
 
