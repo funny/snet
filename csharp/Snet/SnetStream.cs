@@ -34,6 +34,8 @@ namespace Snet
 			_EnableCrypt = enableCrypt;
 			_Rewriter = new Rewriter (size);
 			_Rereader = new Rereader ();
+
+			ConnectTimeout = 10000;
 		}
 
 		public override bool CanRead {
@@ -168,7 +170,14 @@ namespace Snet
 				}
 			}
 
-			TcpClient client = new TcpClient (_Host, _Port);
+			TcpClient client = new TcpClient ();
+			var ar = client.BeginConnect(_Host, _Port, null, null);
+			ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
+			if (!ar.IsCompleted) {
+				throw new TimeoutException ();
+			}
+			client.EndConnect(ar);
+
 			setBaseStream (client.GetStream ());
 			_BaseStream.Write (request, 0, request.Length);
 
@@ -336,7 +345,7 @@ namespace Snet
 					using (BinaryWriter w = new BinaryWriter(ms)) {
 						w.Write(_ID);
 						w.Write(_WriterCount);
-						w.Write(_ReadCount);
+						w.Write(_ReadCount + _Rereader.Count);
 						w.Write(_Key);
 					}
 				}
@@ -350,7 +359,14 @@ namespace Snet
 						Thread.Sleep(3000);
 
 					try {
-						TcpClient client = new TcpClient(_Host, _Port);
+						TcpClient client = new TcpClient();
+
+						var ar = client.BeginConnect(_Host, _Port, null, null);
+						ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
+						if (!ar.IsCompleted) {
+							throw new TimeoutException ();
+						}
+						client.EndConnect(ar);
 
 						NetworkStream stream = client.GetStream();
 						stream.Write(request, 0, request.Length);
@@ -448,6 +464,11 @@ namespace Snet
 		{
 			_Closed = true;
 			_BaseStream.Close ();
+		}
+
+		public int ConnectTimeout {
+			get;
+			set;
 		}
 
 		private int _ReadTimeout;

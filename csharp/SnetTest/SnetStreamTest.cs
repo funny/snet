@@ -179,6 +179,7 @@ namespace SnetTest
 
 			stream.ReadTimeout = 3000;
 			stream.WriteTimeout = 3000;
+			stream.ConnectTimeout = 3000;
 
 			string err = null;
 

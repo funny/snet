@@ -12,6 +12,11 @@ namespace Snet
 	internal class Rereader {
 		private RereadData _Head;
 		private RereadData _Tail;
+		private ulong _Count;
+
+		public ulong Count {
+			get { return _Count; }
+		}
 
 		public int Pull(byte[] buffer, int offset, int size) {
 			if (_Head != null) {
@@ -25,6 +30,7 @@ namespace Snet
 						_Tail = null;
 					}
 				}
+				_Count -= (ulong)count;
 				return count;
 			}
 			return 0;
@@ -49,6 +55,7 @@ namespace Snet
 				_Tail.Next = data;
 			}
 			_Tail = data;
+			_Count += (ulong)n;
 			return true;
 		}
 	}
