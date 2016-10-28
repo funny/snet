@@ -337,7 +337,7 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 
 	var buf [16]byte
 	binary.LittleEndian.PutUint64(buf[0:8], c.writeCount)
-	binary.LittleEndian.PutUint64(buf[8:16], c.readCount)
+	binary.LittleEndian.PutUint64(buf[8:16], c.readCount+c.rereader.count)
 	if _, err := conn.Write(buf[:16]); err != nil {
 		c.trace("response failed")
 		return
@@ -374,7 +374,7 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 	var buf [24 + md5.Size]byte
 	binary.LittleEndian.PutUint64(buf[0:8], c.id)
 	binary.LittleEndian.PutUint64(buf[8:16], c.writeCount)
-	binary.LittleEndian.PutUint64(buf[16:24], c.readCount)
+	binary.LittleEndian.PutUint64(buf[16:24], c.readCount+c.rereader.count)
 	hash := md5.New()
 	hash.Write(buf[0:24])
 	hash.Write(c.key[:])
@@ -443,19 +443,11 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) (reconnDone
 
 		defer func() {
 			c.trace("reread wait")
-
 			if !<-rereadWaitChan {
 				reconnDone = false
 				c.trace("reread failed")
 				return
 			}
-
-			if reconnDone == false {
-				c.rereader.Rollback()
-				c.trace("reread rollback")
-				return
-			}
-
 			c.trace("reread done")
 		}()
 
