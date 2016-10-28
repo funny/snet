@@ -10,7 +10,8 @@ install:
 script:
     - go vet -x github.com/funny/snet/go
     - go install github.com/funny/snet/go
-    - go test -race -coverprofile=coverage.txt -covermode=atomic -v github.com/funny/snet/go
+    - go test -race -v github.com/funny/snet/go
+    - go test -coverprofile=coverage.txt -covermode=atomic -v github.com/funny/snet/go
 
 after_success:
     - bash <(curl -s https://codecov.io/bash)

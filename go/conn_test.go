@@ -90,9 +90,9 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 			t.Fatalf("accept failed: %s", err.Error())
 			return
 		}
-		if unstable {
-			conn.(*Conn).base.(*unstableConn).wn = 11
-		}
+		//if unstable {
+		//	conn.(*Conn).base.(*unstableConn).wn = 11
+		//}
 		io.Copy(conn, conn)
 		conn.Close()
 		t.Log("copy exit")
