@@ -75,7 +75,10 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 		if err != nil {
 			return nil, err
 		}
-		return &unstableListener{l}, nil
+		if unstable {
+			return &unstableListener{l}, nil
+		}
+		return l, nil
 	})
 	if err != nil {
 		t.Fatalf("listen failed: %s", err.Error())

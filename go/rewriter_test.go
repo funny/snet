@@ -50,7 +50,7 @@ func Test_Rewriter1(t *testing.T) {
 }
 
 func Test_Rewriter2(t *testing.T) {
-	w := &rewriter{data: make([]byte, 100)}
+	w := &rewriter{data: make([]byte, 1024)}
 
 	var (
 		writeCount uint64
