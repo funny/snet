@@ -417,7 +417,7 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 	}
 }
 
-func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
+func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) (reconnDone bool) {
 	c.trace(
 		"doReconn(\"%s\", %d, %d), c.writeCount = %d, c.readCount = %d",
 		conn.RemoteAddr(), writeCount, readCount, c.writeCount, c.readCount,
@@ -425,21 +425,38 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 
 	if writeCount < c.readCount {
 		c.trace("writeCount < c.readCount")
-		return false
+		return
 	}
 
 	if c.writeCount < readCount {
 		c.trace("c.writeCount < readCount")
-		return false
+		return
 	}
 
 	if int(c.writeCount-readCount) > len(c.rewriter.data) {
 		c.trace("c.writeCount - readCount > len(c.rewriter.data)")
-		return false
+		return
 	}
 
 	rereadWaitChan := make(chan bool)
 	if writeCount != c.readCount {
+		defer func() {
+			c.trace("reread wait")
+
+			if !<-rereadWaitChan {
+				c.trace("reread failed")
+				return
+			}
+
+			if reconnDone == false {
+				c.rereader.Rollback()
+				c.trace("reread rollback")
+				return
+			}
+
+			c.trace("reread done")
+		}()
+
 		go func() {
 			n := int(writeCount) - int(c.readCount)
 			c.trace(
@@ -457,22 +474,14 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 		)
 		if !c.rewriter.Rewrite(conn, c.writeCount, readCount) {
 			c.trace("rewrite failed")
-			return false
+			return
 		}
 		c.trace("rewrite done")
 	}
 
-	if writeCount != c.readCount {
-		c.trace("reread wait")
-		if !<-rereadWaitChan {
-			c.trace("reread failed")
-			return false
-		}
-		c.trace("reread done")
-	}
-
 	c.base = conn
-	return true
+	reconnDone = true
+	return
 }
 
 func (c *Conn) wakeUp(readWaiting, writeWaiting bool) {
