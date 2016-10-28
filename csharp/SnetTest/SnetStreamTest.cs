@@ -44,49 +44,49 @@ namespace SnetTest
 		[Test()]
 		public void Test_Stable_NoEncrypt()
 		{
-			StreamTest (false, false,10010);
+			StreamTest (false, false, 10010);
 		}
 
 		[Test()]
 		public void Test_Stable_Encrypt()
 		{
-			StreamTest (true, false,10011);
+			StreamTest (true, false, 10011);
 		}
 
 		[Test()]
 		public void Test_Unstable_NoEncrypt()
 		{
-			StreamTest (false, false,10012);
+			StreamTest (false, false, 10012);
 		}
 
 		[Test()]
 		public void Test_Unstable_Encrypt()
 		{
-			StreamTest (true, false,10013);
+			StreamTest (true, false, 10013);
 		}
 
 		[Test()]
 		public void Test_Stable_NoEncrypt_Reconn()
 		{
-			StreamTest (false, true,10010);
+			StreamTest (false, true, 10010);
 		}
 
 		[Test()]
 		public void Test_Stable_Encrypt_Reconn()
 		{
-			StreamTest (true, true,10011);
+			StreamTest (true, true, 10011);
 		}
 
 		[Test()]
 		public void Test_Unstable_NoEncrypt_Reconn()
 		{
-			StreamTest (false, true,10012);
+			StreamTest (false, true, 10012);
 		}
 
 		[Test()]
 		public void Test_Unstable_Encrypt_Reconn()
 		{
-			StreamTest (true, true,10013);
+			StreamTest (true, true, 10013);
 		}
 
 		private void StreamTestAsync(bool enableCrypt, bool reconn, int port)
@@ -127,49 +127,78 @@ namespace SnetTest
 		[Test()]
 		public void Test_Stable_NoEncrypt_Async()
 		{
-			StreamTestAsync (false, false,10010);
+			StreamTestAsync (false, false, 10010);
 		}
 
 		[Test()]
 		public void Test_Stable_Encrypt_Async()
 		{
-			StreamTestAsync (true, false,10011);
+			StreamTestAsync (true, false, 10011);
 		}
 
 		[Test()]
 		public void Test_Unstable_NoEncrypt_Async()
 		{
-			StreamTestAsync (false, false,10012);
+			StreamTestAsync (false, false, 10012);
 		}
 
 		[Test()]
 		public void Test_Unstable_Encrypt_Async()
 		{
-			StreamTestAsync (true, false,10013);
+			StreamTestAsync (true, false, 10013);
 		}
 
 		[Test()]
 		public void Test_Stable_NoEncrypt_Async_Reconn()
 		{
-			StreamTestAsync (false, true,10010);
+			StreamTestAsync (false, true, 10010);
 		}
 
 		[Test()]
 		public void Test_Stable_Encrypt_Async_Reconn()
 		{
-			StreamTestAsync (true, true,10011);
+			StreamTestAsync (true, true, 10011);
 		}
 
 		[Test()]
 		public void Test_Unstable_NoEncrypt_Async_Reconn()
 		{
-			StreamTestAsync (false, true,10012);
+			StreamTestAsync (false, true, 10012);
 		}
 
 		[Test()]
 		public void Test_Unstable_Encrypt_Async_Reconn()
 		{
-			StreamTestAsync (true, true,10013);
+			StreamTestAsync (true, true, 10013);
+		}
+
+		[Test()]
+		public void Test_BadServer()
+		{
+			var stream = new SnetStream (1024, false);
+
+			stream.ReadTimeout = 3000;
+			stream.WriteTimeout = 3000;
+
+			string err = null;
+
+			var wait = new System.Threading.ManualResetEvent (false);
+
+			stream.BeginConnect ("192.168.2.20", 10000, (IAsyncResult ar) => {
+				try {
+					stream.EndConnect(ar);
+				} catch (Exception ex) {
+					err = ex.ToString ();
+				}
+				wait.Set();
+			}, null);
+
+			wait.WaitOne ();
+			//wait.WaitOne (new TimeSpan (0, 0, 4));
+
+			Assert.IsNotNull(err);
+
+			Console.WriteLine (err);
 		}
 	}
 }

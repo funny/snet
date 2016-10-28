@@ -173,7 +173,10 @@ namespace Snet
 			_BaseStream.Write (request, 0, request.Length);
 
 			for (int n = 16; n > 0;) {
-				n -= _BaseStream.Read (response, 16 - n, n);
+				int x = _BaseStream.Read (response, 16 - n, n);
+				if (x == 0)
+					throw new EndOfStreamException ();
+				n -= x;
 			}
 
 			using (MemoryStream ms = new MemoryStream (response, 0, 16)) {
@@ -353,7 +356,10 @@ namespace Snet
 						stream.Write(request, 0, request.Length);
 
 						for (int n = response.Length; n > 0;) {
-							n -= stream.Read(response, response.Length - n, n);
+							int x = stream.Read(response, response.Length - n, n);
+							if (x == 0)
+								throw new EndOfStreamException();
+							n -= x;
 						}
 
 						ulong writeCount = 0;
@@ -415,6 +421,12 @@ namespace Snet
 		private void setBaseStream(NetworkStream stream)
 		{
 			_BaseStream = stream;
+
+			if (_ReadTimeout > 0)
+				_BaseStream.ReadTimeout = this.ReadTimeout;
+
+			if (_WriteTimeout > 0)
+				_BaseStream.WriteTimeout = this.WriteTimeout;
 		}
 
 		public override void Flush ()
@@ -438,21 +450,25 @@ namespace Snet
 			_BaseStream.Close ();
 		}
 
-		public override int WriteTimeout {
-			get {
-				return _BaseStream.WriteTimeout;
-			}
+		private int _ReadTimeout;
+
+		public override int ReadTimeout {
+			get { return _ReadTimeout; }
 			set {
-				_BaseStream.WriteTimeout = value;
+				_ReadTimeout = value;
+				if (_BaseStream != null)
+					_BaseStream.ReadTimeout = value;
 			}
 		}
 
-		public override int ReadTimeout {
-			get {
-				return _BaseStream.ReadTimeout;
-			}
+		private int _WriteTimeout;
+
+		public override int WriteTimeout {
+			get { return _WriteTimeout; }
 			set {
-				_BaseStream.ReadTimeout = value;
+				_WriteTimeout = value;
+				if (_BaseStream != null)
+					_BaseStream.WriteTimeout = value;
 			}
 		}
 	}

@@ -21,13 +21,29 @@ func main() {
 	go StartServer(true, false, "10012")
 	go StartServer(true, true, "10013")
 
+	// Bad Server
+	go func() {
+		lsn, err := net.Listen("tcp", "127.0.0.1:10014")
+		if err != nil {
+			log.Fatalf("listen failed: %s", err.Error())
+		}
+		log.Println("server start:", lsn.Addr())
+		for {
+			conn, err := lsn.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
 	if pid := syscall.Getpid(); pid != 1 {
-		ioutil.WriteFile("test_server.pid", []byte(strconv.Itoa(pid)), 0644)
-		defer os.Remove("test_server.pid")
+		ioutil.WriteFile("TestServer.pid", []byte(strconv.Itoa(pid)), 0644)
+		defer os.Remove("TestServer.pid")
 	}
 
 	sigTERM := make(chan os.Signal, 1)
-	signal.Notify(sigTERM, syscall.SIGTERM)
+	signal.Notify(sigTERM, syscall.SIGTERM, syscall.SIGINT)
 	<-sigTERM
 
 	log.Println("test server killed")
