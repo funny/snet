@@ -173,7 +173,9 @@ func (c *Conn) Close() error {
 
 func (c *Conn) TryReconn() {
 	if c.listener == nil {
+		c.reconnMutex.RLock()
 		base := c.base
+		c.reconnMutex.RUnlock()
 		go c.tryReconn(base)
 	}
 }
