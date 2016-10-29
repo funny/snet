@@ -1,4 +1,4 @@
-// +build unstable_trace
+// +build snet_trace
 
 package snet
 
