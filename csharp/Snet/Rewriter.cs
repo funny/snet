@@ -6,7 +6,7 @@ namespace Snet
 	internal class Rewriter
 	{
 		private byte[] _Data;
-		private int _Begin;
+		//private int _Begin;
 
 		public Rewriter (int size)
 		{
@@ -14,15 +14,13 @@ namespace Snet
 		}
 
 		public void Push(byte[] b, int offset, int size) {
-			while (size > 0) {
-				int n = _Data.Length - _Begin;
-				if (n > b.Length - offset) {
-					n = b.Length - offset;
-				}
-				Buffer.BlockCopy (b, offset, _Data, _Begin, n);
-				_Begin = (_Begin + n) % _Data.Length;
-				offset += n;
-				size -= n;
+			if (size >= _Data.Length) {
+				int drop = size - _Data.Length;
+
+				Buffer.BlockCopy (b, offset + drop, _Data, 0, size - drop);
+			} else {
+				Buffer.BlockCopy (_Data, size, _Data, 0, _Data.Length - size);
+				Buffer.BlockCopy (b, offset, _Data, _Data.Length - size, size);
 			}
 		}
 
@@ -33,32 +31,10 @@ namespace Snet
 				return true;
 			} else if (n < 0 || n > _Data.Length) {
 				return false;
-			} else if (writeCount <= (ulong)_Data.Length) {
-				try {
-					stream.Write(_Data, (int)readCount, n);
-					return true;
-				} catch {
-					return false;
-				}
 			}
 
-			int begin = (_Begin + (_Data.Length - n)) % _Data.Length;
-			int end = begin + n;
-			if (end > _Data.Length) {
-				end = _Data.Length;
-			}
-
-			try {
-				stream.Write(_Data, begin, end - begin);
-
-				n -= end - begin;
-				if (n != 0){
-					stream.Write(_Data, 0, n);
-				}
-				return true;
-			} catch {
-				return false;
-			}
+			stream.Write(_Data, _Data.Length - n, n);
+			return true;
 		}
 	}
 }
