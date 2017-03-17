@@ -6,7 +6,9 @@ namespace Snet
 	internal class Rewriter
 	{
 		private byte[] _Data;
-		//private int _Begin;
+		private int _head;
+
+		private int _len;
 
 		public Rewriter (int size)
 		{
@@ -18,9 +20,32 @@ namespace Snet
 				int drop = size - _Data.Length;
 
 				Buffer.BlockCopy (b, offset + drop, _Data, 0, size - drop);
+				_head = 0;
+				if (_len != _Data.Length){
+					_len = _Data.Length;
+				}
 			} else {
-				Buffer.BlockCopy (_Data, size, _Data, 0, _Data.Length - size);
-				Buffer.BlockCopy (b, offset, _Data, _Data.Length - size, size);
+				int space = _Data.Length - _head;
+				if (space >= size){
+					Buffer.BlockCopy(b, offset, _Data, _head, size);
+					if (space == size){
+						_head = 0;
+					} else{
+						_head += size;
+					}
+
+					if (_len != _Data.Length){
+						_len = Math.Min(_len + size, _Data.Length);
+					}
+				} else{
+					Buffer.BlockCopy(b, offset, _Data, _head, space);
+					Buffer.BlockCopy(b, offset + space, _Data, 0, size - space);
+					_head = size - space;
+
+					if (_len != _Data.Length){
+						_len = _Data.Length;
+					}
+				}
 			}
 		}
 
@@ -29,11 +54,18 @@ namespace Snet
 
 			if (n == 0) {
 				return true;
-			} else if (n < 0 || n > _Data.Length) {
+			} else if (n < 0 || n > _len) {
 				return false;
 			}
 
-			stream.Write(_Data, _Data.Length - n, n);
+			int offset = _head - n;
+			if (offset >= 0){
+				stream.Write(_Data, offset, n);
+			} else{
+				offset += _Data.Length;
+				stream.Write(_Data, offset, _Data.Length - offset);
+				stream.Write(_Data, 0, _head);
+			}
 			return true;
 		}
 	}
