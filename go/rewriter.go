@@ -5,26 +5,37 @@ import (
 )
 
 type rewriter struct {
-	data  []byte
-	begin int
+	data   []byte
+	head   int
+	length int
 }
 
 func (r *rewriter) Push(b []byte) {
-	/*
-		if len(b) >= len(r.data) {
-			copy(r.data, b[len(b)-len(r.data):])
-		} else {
-			copy(r.data, r.data[len(b):])
-			copy(r.data[len(r.data)-len(b):], b)
+	if len(b) >= len(r.data) {
+		drop := len(b) - len(r.data)
+		copy(r.data, b[drop:])
+		r.head, r.length = 0, len(r.data)
+		return
+	}
+
+	size := copy(r.data[r.head:], b)
+
+	remain := len(b) - size
+
+	if remain == 0 {
+		r.head += size
+		if r.head == len(r.data) {
+			r.head = 0
 		}
-	*/
-	for c, n := b, 0; len(c) > 0; c = c[n:] {
-		n = len(r.data) - r.begin
-		if n > len(c) {
-			n = len(c)
+
+		if r.length != len(r.data) {
+			r.length += len(r.data)
 		}
-		copy(r.data[r.begin:], c[:n])
-		r.begin = (r.begin + n) % len(r.data)
+	} else {
+		r.head = copy(r.data, b[size:])
+		if r.length != len(r.data) {
+			r.length = len(r.data)
+		}
 	}
 }
 
@@ -34,31 +45,18 @@ func (r *rewriter) Rewrite(w io.Writer, writeCount, readCount uint64) bool {
 	switch {
 	case n == 0:
 		return true
-	case n < 0 || n > len(r.data):
+	case n < 0 || n > r.length:
 		return false
-	case int(writeCount) <= len(r.data):
-		_, err := w.Write(r.data[readCount:writeCount])
+	case n <= r.head:
+		_, err := w.Write(r.data[r.head-n : r.head])
 		return err == nil
 	}
-	/*
-		_, err := w.Write(r.data[len(r.data)-n:])
-		return err == nil
-	*/
-	var (
-		begin = (r.begin + (len(r.data) - n)) % len(r.data)
-		end   = begin + n
-	)
-	if end > len(r.data) {
-		end = len(r.data)
-	}
-	if _, err := w.Write(r.data[begin:end]); err != nil {
+
+	offset := r.head - n + len(r.data)
+	if _, err := w.Write(r.data[offset:]); err != nil {
 		return false
 	}
 
-	n -= end - begin
-	if n == 0 {
-		return true
-	}
-	_, err := w.Write(r.data[:n])
+	_, err := w.Write(r.data[:r.head])
 	return err == nil
 }
