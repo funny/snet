@@ -82,6 +82,30 @@ func Test_Rewriter2(t *testing.T) {
 	}
 }
 
+func Test_Rewriter3(t *testing.T) {
+	writer := &rewriter{data: make([]byte, 5)}
+	tester := &rewriterTester{writer, t, nil}
+
+	if writer.Rewrite(tester, 2, 0) {
+		t.FailNow()
+	}
+
+	writer.Push([]byte{0, 1, 2, 3})
+	tester.Match(4, 0, []byte{0, 1, 2, 3})
+	tester.Match(4, 1, []byte{1, 2, 3})
+	tester.Match(4, 4, []byte{})
+
+	writer.Push([]byte{4})
+	tester.Match(5, 0, []byte{0, 1, 2, 3, 4})
+	tester.Match(5, 1, []byte{1, 2, 3, 4})
+	tester.Match(5, 2, []byte{2, 3, 4})
+
+	writer.Push([]byte{5, 6, 7, 8, 9})
+	tester.Match(9, 4, []byte{5, 6, 7, 8, 9})
+	tester.Match(9, 5, []byte{6, 7, 8, 9})
+	tester.Match(9, 6, []byte{7, 8, 9})
+}
+
 type ByteWriter struct {
 	b []byte
 	n int
