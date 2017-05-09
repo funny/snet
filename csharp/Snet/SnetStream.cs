@@ -3,13 +3,14 @@ using System.IO;
 using System.Threading;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Net;
 
 namespace Snet
 {
 	public class SnetStream : Stream
 	{
-		private ulong     _ID;
-		private string    _Host;
+		private ulong      _ID;
+		private IPAddress  _Host;
 		private int       _Port;
 		private byte[]    _Key = new byte[8];
 		private bool      _EnableCrypt;
@@ -149,7 +150,7 @@ namespace Snet
 			if (_BaseStream != null)
 				throw new InvalidOperationException ();
 
-			_Host = host;
+			_Host = Dns.GetHostAddresses (host)[0];
 			_Port = port;
 			handshake ();
 		}
@@ -170,7 +171,7 @@ namespace Snet
 				}
 			}
 
-			TcpClient client = new TcpClient ();
+			TcpClient client = new TcpClient (_Host.AddressFamily);
 			var ar = client.BeginConnect(_Host, _Port, null, null);
 			ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
 			if (!ar.IsCompleted) {
@@ -359,7 +360,7 @@ namespace Snet
 						Thread.Sleep(3000);
 
 					try {
-						TcpClient client = new TcpClient();
+						TcpClient client = new TcpClient (_Host.AddressFamily);
 
 						var ar = client.BeginConnect(_Host, _Port, null, null);
 						ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
