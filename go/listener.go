@@ -3,17 +3,24 @@ package snet
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/binary"
-	"github.com/funny/crypto/dh64/go"
 	"io"
 	"net"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/funny/crypto/dh64/go"
 )
 
 var _ net.Listener = &Listener{}
+
+const (
+	TYPE_NEWCONN byte = 0x00
+	TYPE_RECONN  byte = 0xFF
+)
 
 type Listener struct {
 	base         net.Listener
@@ -73,7 +80,20 @@ func (l *Listener) acceptLoop() {
 			}
 			break
 		}
-		go l.handshake(conn)
+		var buf [1]byte
+		if _, err := io.ReadFull(conn, buf[:]); err != nil {
+			conn.Close()
+			continue
+		}
+
+		switch buf[0] {
+		case TYPE_NEWCONN:
+			go l.handshake(conn)
+		case TYPE_RECONN:
+			go l.reconn(conn)
+		default:
+			conn.Close()
+		}
 	}
 }
 
@@ -83,6 +103,76 @@ func (l *Listener) handshake(conn net.Conn) {
 		defer conn.SetDeadline(time.Time{})
 	}
 
+	var (
+		buf    [24]byte
+		field1 = buf[0:8]
+		field2 = buf[8:16]
+		field3 = buf[16:24]
+	)
+	// 读取客户端公钥
+	if _, err := io.ReadFull(conn, field1); err != nil {
+		conn.Close()
+		return
+	}
+
+	l.trace("new conn")
+	connPubKey := binary.LittleEndian.Uint64(field1)
+	if connPubKey == 0 {
+		l.trace("zero public key")
+		conn.Close()
+		return
+	}
+
+	privKey, pubKey := dh64.KeyPair()
+	secret := dh64.Secret(privKey, connPubKey)
+
+	connID := atomic.AddUint64(&l.atomicConnID, 1)
+	sconn, err := newConn(conn, connID, secret, l.config)
+	if err != nil {
+		l.trace("new conn failed: %s", err)
+		conn.Close()
+		return
+	}
+
+	binary.LittleEndian.PutUint64(field1, pubKey)
+	binary.LittleEndian.PutUint64(field2, connID)
+	sconn.writeCipher.XORKeyStream(field2, field2)
+	rand.Read(field3)
+	if _, err := conn.Write(buf[:]); err != nil {
+		l.trace("send handshake response failed: %s", err)
+		conn.Close()
+		return
+	}
+
+	// 二次握手
+	l.trace("check twice handshake")
+	var buf2 [16]byte
+	if _, err := io.ReadFull(conn, buf2[:]); err != nil {
+		l.trace("read twice handshake failed: %s", err)
+		conn.Close()
+		return
+	}
+
+	hash := md5.New()
+	hash.Write(field3)
+	hash.Write(sconn.key[:])
+	md5sum := hash.Sum(nil)
+	if !bytes.Equal(buf2[:], md5sum) {
+		l.trace("twice handshake not equals: %x, %x", buf2[:], md5sum)
+		conn.Close()
+		return
+	}
+
+	sconn.listener = l
+	l.putConn(connID, sconn)
+	select {
+	case l.acceptChan <- sconn:
+	case <-l.closeChan:
+	}
+}
+
+// 重连
+func (l *Listener) reconn(conn net.Conn) {
 	var (
 		buf    [24 + md5.Size]byte
 		field1 = buf[0:8]
@@ -95,68 +185,44 @@ func (l *Listener) handshake(conn net.Conn) {
 		return
 	}
 
+	l.trace("reconn")
 	connID := binary.LittleEndian.Uint64(field1)
-	switch connID {
-	case 0:
-		l.trace("new conn")
-
-		connPubKey := binary.LittleEndian.Uint64(field2)
-		if connPubKey == 0 {
-			l.trace("zero public key")
-			conn.Close()
-			return
-		}
-
-		privKey, pubKey := dh64.KeyPair()
-		secret := dh64.Secret(privKey, connPubKey)
-
-		connID = atomic.AddUint64(&l.atomicConnID, 1)
-		sconn, err := newConn(conn, connID, secret, l.config)
-		if err != nil {
-			l.trace("new conn failed: %s", err)
-			conn.Close()
-			return
-		}
-
-		binary.LittleEndian.PutUint64(field1, pubKey)
-		binary.LittleEndian.PutUint64(field2, connID)
-		sconn.writeCipher.XORKeyStream(field2, field2)
-		if _, err := conn.Write(buf[:16]); err != nil {
-			l.trace("send handshake response failed: %s", err)
-			conn.Close()
-			return
-		}
-
-		sconn.listener = l
-		l.putConn(connID, sconn)
-		select {
-		case l.acceptChan <- sconn:
-		case <-l.closeChan:
-		}
-	default:
-		l.trace("reconn")
-
-		sconn, exists := l.getConn(connID)
-		if !exists {
-			l.trace("conn %d not exists", connID)
-			conn.Close()
-			return
-		}
-
-		hash := md5.New()
-		hash.Write(buf[:24])
-		hash.Write(sconn.key[:])
-		md5sum := hash.Sum(nil)
-		if !bytes.Equal(field4, md5sum) {
-			l.trace("not equals: %x, %x", field4, md5sum)
-			conn.Close()
-			return
-		}
-
-		writeCount := binary.LittleEndian.Uint64(field2)
-		readCount := binary.LittleEndian.Uint64(field3)
-		sconn.handleReconn(conn, writeCount, readCount)
+	sconn, exists := l.getConn(connID)
+	if !exists {
+		l.trace("conn %d not exists", connID)
+		var buf2 [24]byte
+		conn.Write(buf2[:])
+		conn.Close()
+		return
 	}
+
+	hash := md5.New()
+	hash.Write(buf[:24])
+	hash.Write(sconn.key[:])
+	md5sum := hash.Sum(nil)
+	if !bytes.Equal(field4, md5sum) {
+		l.trace("not equals: %x, %x", field4, md5sum)
+		var buf2 [24]byte
+		conn.Write(buf2[:])
+		conn.Close()
+		return
+	}
+
+	writeCount := binary.LittleEndian.Uint64(field2)
+	readCount := binary.LittleEndian.Uint64(field3)
+	if writeCount < sconn.readCount || sconn.writeCount < readCount ||
+		int(sconn.writeCount-readCount) > len(sconn.rewriter.data) {
+		l.trace("data corruption(\"%s\", %d, %d), c.writeCount = %d, c.readCount = %d",
+			conn.RemoteAddr(), writeCount, readCount, sconn.writeCount, sconn.readCount,
+		)
+
+		var buf2 [24]byte
+		conn.Write(buf2[:])
+		conn.Close()
+		return
+	}
+
+	sconn.handleReconn(conn, writeCount, readCount)
 }
 
 func (l *Listener) getConn(id uint64) (*Conn, bool) {

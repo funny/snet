@@ -1,15 +1,17 @@
 ﻿using System;
 using System.IO;
 using System.Threading;
+using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
-using System.Net;
 
 namespace Snet
 {
 	public class SnetStream : Stream
 	{
-		private ulong      _ID;
+        private const byte TypeNewconn = 0x00;
+        private const byte TypeReconn = 0xFF;
+        private ulong     _ID;
 		private IPAddress  _Host;
 		private int       _Port;
 		private byte[]    _Key = new byte[8];
@@ -157,57 +159,80 @@ namespace Snet
 
 		private void handshake()
 		{
-			byte[] request = new byte[24 + 16];
-			byte[] response = request;
+            byte[] preRequest = new byte[1];
+            byte[] request = new byte[24];
+            byte[] response = request;
 
-			ulong privateKey;
+            preRequest[0] = TypeNewconn;
+
+            ulong privateKey;
 			ulong publicKey;
 			DH64 dh64 = new DH64 ();
 			dh64.KeyPair (out privateKey, out publicKey);
 
-			using (MemoryStream ms = new MemoryStream (request, 8, 8)) {
+			using (MemoryStream ms = new MemoryStream (request, 0, 8)) {
 				using (BinaryWriter w = new BinaryWriter (ms)) {
 					w.Write (publicKey);
 				}
 			}
 
-			TcpClient client = new TcpClient (_Host.AddressFamily);
-			var ar = client.BeginConnect(_Host, _Port, null, null);
-			ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
-			if (!ar.IsCompleted) {
-				throw new TimeoutException ();
-			}
-			client.EndConnect(ar);
+            TcpClient client = new TcpClient (_Host.AddressFamily);
+            var ar = client.BeginConnect(_Host, _Port, null, null);
+            ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
+            if (!ar.IsCompleted)
+            {
+                throw new TimeoutException();
+            }
+            client.EndConnect(ar);
 
 			setBaseStream (client.GetStream ());
-			_BaseStream.Write (request, 0, request.Length);
+			_BaseStream.Write (preRequest, 0, preRequest.Length);
+			_BaseStream.Write (request, 0, 8);
 
-			for (int n = 16; n > 0;) {
-				int x = _BaseStream.Read (response, 16 - n, n);
+			for (int n = 24; n > 0;) {
+				int x = _BaseStream.Read (response, 24 - n, n);
 				if (x == 0)
 					throw new EndOfStreamException ();
 				n -= x;
 			}
 
-			using (MemoryStream ms = new MemoryStream (response, 0, 16)) {
-				using (BinaryReader r = new BinaryReader (ms)) {
-					ulong serverPublicKey = r.ReadUInt64 ();
-					ulong secret = dh64.Secret (privateKey, serverPublicKey);
+            ulong challengeCode = 0;
+            using (MemoryStream ms = new MemoryStream(response, 0, 24))
+            {
+                using (BinaryReader r = new BinaryReader(ms))
+                {
+                    ulong serverPublicKey = r.ReadUInt64();
+                    ulong secret = dh64.Secret(privateKey, serverPublicKey);
 
-					using (MemoryStream ms2 = new MemoryStream (_Key)) {
-						using (BinaryWriter w = new BinaryWriter (ms2)) {
-							w.Write (secret);
-						}
-					}
+                    using (MemoryStream ms2 = new MemoryStream(_Key))
+                    {
+                        using (BinaryWriter w = new BinaryWriter(ms2))
+                        {
+                            w.Write(secret);
+                        }
+                    }
 
-					_ReadCipher = new RC4Cipher (_Key);
-					_WriteCipher = new RC4Cipher (_Key);
-					_ReadCipher.XORKeyStream (response, 8, response, 8, 8);
+                    _ReadCipher = new RC4Cipher(_Key);
+                    _WriteCipher = new RC4Cipher(_Key);
+                    _ReadCipher.XORKeyStream(response, 8, response, 8, 8);
 
-					_ID = r.ReadUInt64 ();
-				}
-			}
-		}
+                    _ID = r.ReadUInt64();
+
+                    using (MemoryStream ms2 = new MemoryStream(request, 0, 16))
+                    {
+                        using (BinaryWriter w = new BinaryWriter(ms2))
+                        {
+                            w.Write(response, 16, 8);
+                            w.Write(_Key);
+                            MD5 md5 = MD5CryptoServiceProvider.Create();
+                            byte[] hash = md5.ComputeHash(request, 0, 16);
+                            Buffer.BlockCopy(hash, 0, request, 0, hash.Length);
+                            _BaseStream.Write(request, 0, 16);
+                        }
+                    }
+                }
+            }
+        }
 
 		public override IAsyncResult BeginRead (byte[] buffer, int offset, int count, AsyncCallback callback, object state)
 		{
@@ -339,9 +364,10 @@ namespace Snet
 			try {
 				if (badStream != _BaseStream)
 					return true;
-
+                byte[] preRequest = new byte[1];
 				byte[] request = new byte[24 + 16];
-				byte[] response = new byte[16];
+				byte[] response = new byte[24];
+                preRequest[0] = TypeReconn;
 				using (MemoryStream ms = new MemoryStream(request)) {
 					using (BinaryWriter w = new BinaryWriter(ms)) {
 						w.Write(_ID);
@@ -360,7 +386,7 @@ namespace Snet
 						Thread.Sleep(3000);
 
 					try {
-						TcpClient client = new TcpClient (_Host.AddressFamily);
+						TcpClient client = new TcpClient(_Host.AddressFamily);
 
 						var ar = client.BeginConnect(_Host, _Port, null, null);
 						ar.AsyncWaitHandle.WaitOne(new TimeSpan(0, 0, 0, 0, ConnectTimeout));
@@ -370,6 +396,7 @@ namespace Snet
 						client.EndConnect(ar);
 
 						NetworkStream stream = client.GetStream();
+                        stream.Write(preRequest,0,preRequest.Length);
 						stream.Write(request, 0, request.Length);
 
 						for (int n = response.Length; n > 0;) {
@@ -381,12 +408,34 @@ namespace Snet
 
 						ulong writeCount = 0;
 						ulong readCount = 0;
+                        ulong challengeCode = 0;
 						using (MemoryStream ms = new MemoryStream(response)) {
 							using (BinaryReader r = new BinaryReader(ms)) {
 								writeCount = r.ReadUInt64();
 								readCount = r.ReadUInt64();
+                                challengeCode = r.ReadUInt64();
+                                if (writeCount == 0 && readCount == 0 && challengeCode == 0) {
+                                    stream.Close();
+                                    return false;
+                                }
 							}
 						}
+
+                        using (MemoryStream ms = new MemoryStream(request, 0, 16)) {
+                            using (BinaryWriter w = new BinaryWriter(ms)) {
+                                w.Write(response, 16, 8);
+                                w.Write(_Key);
+                            }
+                        }
+                        hash = md5.ComputeHash(request, 0, 16);
+                        Buffer.BlockCopy(hash, 0, request, 0, hash.Length);
+                        stream.Write(request, 0, 16);
+
+                        if (writeCount < _ReadCount)
+                            return false;
+
+                        if (_WriterCount < readCount)
+                            return false;
 
 						if (doReconn(stream, writeCount, readCount))
 							return true;
@@ -403,12 +452,6 @@ namespace Snet
 
 		private bool doReconn(NetworkStream stream, ulong writeCount, ulong readCount)
 		{
-			if (writeCount < _ReadCount)
-				return false;
-
-			if (_WriterCount < readCount)
-				return false;
-			
 			Thread thread = null;
 			bool rereadSucceed = false;
 
@@ -495,4 +538,3 @@ namespace Snet
 		}
 	}
 }
-
