@@ -130,7 +130,7 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 	err = conn.SetWriteDeadline(time.Time{})
 	utest.IsNilNow(t, err)
 
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < 1000; i++ {
 		b := RandBytes(100)
 		c := b
 		if encrypt {
