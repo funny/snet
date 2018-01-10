@@ -182,6 +182,7 @@ func (l *Listener) reconn(conn net.Conn) {
 	var (
 		buf    [24 + md5.Size]byte
 		field1 = buf[0:8]
+		buf2   [24]byte
 		field2 = buf[8:16]
 		field3 = buf[16:24]
 		field4 = buf[24 : 24+md5.Size]
@@ -196,7 +197,6 @@ func (l *Listener) reconn(conn net.Conn) {
 	sconn, exists := l.getConn(connID)
 	if !exists {
 		l.trace("conn %d not exists", connID)
-		var buf2 [24]byte
 		conn.Write(buf2[:])
 		conn.Close()
 		return
@@ -208,7 +208,6 @@ func (l *Listener) reconn(conn net.Conn) {
 	md5sum := hash.Sum(nil)
 	if !bytes.Equal(field4, md5sum) {
 		l.trace("not equals: %x, %x", field4, md5sum)
-		var buf2 [24]byte
 		conn.Write(buf2[:])
 		conn.Close()
 		return

@@ -130,6 +130,8 @@ func ConnTest(t *testing.T, unstable, encrypt, reconn bool) {
 	err = conn.SetWriteDeadline(time.Time{})
 	utest.IsNilNow(t, err)
 
+	conn.(*Conn).SetReconnWaitTimeout(config.ReconnWaitTimeout)
+
 	for i := 0; i < 1000; i++ {
 		b := RandBytes(100)
 		c := b
@@ -198,4 +200,96 @@ func Test_Stable_Encrypt_Reconn(t *testing.T) {
 
 func Test_Unstable_Encrypt_Reconn(t *testing.T) {
 	ConnTest(t, true, true, true)
+}
+
+func ConnTestException(t *testing.T, errorType int) {
+	config := Config{
+		EnableCrypt:        true,
+		HandshakeTimeout:   time.Second * 5,
+		RewriterBufferSize: 1024,
+		ReconnWaitTimeout:  time.Minute * 5,
+	}
+
+	listener, err := Listen(config, func() (net.Listener, error) {
+		l, err := net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			return nil, err
+		}
+		return l, nil
+	})
+
+	if err != nil {
+		t.Fatalf("listen failed: %s", err.Error())
+		return
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			t.Fatalf("accept failed: %s", err.Error())
+			return
+		}
+
+		io.Copy(conn, conn)
+		conn.Close()
+		t.Log("copy exit")
+		wg.Done()
+	}()
+
+	conn, err := Dial(config, func() (net.Conn, error) {
+		conn, err := net.Dial("tcp", listener.Addr().String())
+		if err != nil {
+			return nil, err
+		}
+		return conn, nil
+	})
+
+	if err != nil {
+		t.Fatalf("dial stable conn failed: %s", err.Error())
+		return
+	}
+	defer conn.Close()
+
+	for i := 0; i < 1000; i++ {
+		b := RandBytes(100)
+
+		if _, err := conn.Write(b); err != nil {
+			t.Fatalf("write failed: %s", err.Error())
+			return
+		}
+
+		switch errorType {
+		case 1:
+			conn.(*Conn).writeCount += uint64(config.RewriterBufferSize) + 1
+		case 2:
+			conn.(*Conn).id++
+		case 3:
+			conn.(*Conn).key[0] = byte(0)
+		}
+		conn.(*Conn).TryReconn()
+
+		a := make([]byte, len(b))
+		if _, err := io.ReadFull(conn, a); err == nil {
+			t.Fatalf("check has error")
+		}
+		return
+	}
+
+	conn.Close()
+	listener.Close()
+	wg.Wait()
+}
+
+func Test_Error_Count(t *testing.T) {
+	ConnTestException(t, 1)
+}
+
+func Test_Error_Id(t *testing.T) {
+	ConnTestException(t, 2)
+}
+
+func Test_Error_Key(t *testing.T) {
+	ConnTestException(t, 3)
 }
