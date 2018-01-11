@@ -504,6 +504,7 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 		}
 
 		if c.doReconn(conn, writeCount, readCount) {
+			c.trace("reconn success")
 			done = true
 			break
 		}
