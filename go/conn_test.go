@@ -271,11 +271,6 @@ func reconnTest(t *testing.T, errorType int) {
 		return
 	}
 
-	// if _, err := conn.Write(b); err != nil {
-	// 	t.Fatalf("write failed: %s", err.Error())
-	// 	return
-	// }
-
 	switch errorType {
 	case 1:
 		conn.(*Conn).writeCount += uint64(config.RewriterBufferSize) + 1
