@@ -181,8 +181,8 @@ func (l *Listener) reconn(conn net.Conn) {
 
 	var (
 		buf    [24 + md5.Size]byte
-		field1 = buf[0:8]
 		buf2   [24]byte
+		field1 = buf[0:8]
 		field2 = buf[8:16]
 		field3 = buf[16:24]
 		field4 = buf[24 : 24+md5.Size]
