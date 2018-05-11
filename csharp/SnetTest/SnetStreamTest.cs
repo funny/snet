@@ -13,7 +13,7 @@ namespace SnetTest
 
 			stream.Connect ("127.0.0.1", port);
 
-			for (int i = 0; i < 100000; i++) {
+			for (int i = 0; i < 1000; i++) {
 				var a = RandBytes (100);
 				var b = a;
 				var c = new byte[a.Length];

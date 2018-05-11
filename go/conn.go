@@ -1,7 +1,9 @@
 package snet
 
 import (
+	"bytes"
 	"crypto/md5"
+	"crypto/rand"
 	"crypto/rc4"
 	"encoding/binary"
 	"io"
@@ -9,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/funny/crypto/dh64/go"
+	dh64 "github.com/funny/crypto/dh64/go"
 )
 
 var _ net.Conn = &Conn{}
@@ -63,18 +65,24 @@ func Dial(config Config, dialer Dialer) (net.Conn, error) {
 	}
 
 	var (
-		buf    [24 + md5.Size]byte
+		preBuf [1]byte
+		buf    [24]byte
 		field1 = buf[0:8]
 		field2 = buf[8:16]
+		field3 = buf[16:24]
 	)
-
-	privKey, pubKey := dh64.KeyPair()
-	binary.LittleEndian.PutUint64(field2, pubKey)
-	if _, err := conn.Write(buf[:]); err != nil {
+	preBuf[0] = TYPE_NEWCONN
+	if _, err := conn.Write(preBuf[:]); err != nil {
 		return nil, err
 	}
 
-	if _, err := io.ReadFull(conn, buf[:16]); err != nil {
+	privKey, pubKey := dh64.KeyPair()
+	binary.LittleEndian.PutUint64(field1, pubKey)
+	if _, err := conn.Write(field1); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(conn, buf[:]); err != nil {
 		return nil, err
 	}
 
@@ -83,6 +91,17 @@ func Dial(config Config, dialer Dialer) (net.Conn, error) {
 
 	sconn, err := newConn(conn, 0, secret, config)
 	if err != nil {
+		return nil, err
+	}
+
+	// 二次握手
+	sconn.trace("twice handshake")
+	var buf2 [md5.Size]byte
+	hash := md5.New()
+	hash.Write(field3)
+	hash.Write(sconn.key[:])
+	copy(buf2[:], hash.Sum(nil))
+	if _, err := conn.Write(buf2[:]); err != nil {
 		return nil, err
 	}
 
@@ -322,7 +341,6 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 	c.reconnOpMutex.Lock()
 	defer c.reconnOpMutex.Unlock()
 
-	c.base.Close()
 	c.trace("handleReconn() wait Read() or Write()")
 	c.reconnMutex.Lock()
 	readWaiting := c.readWaiting
@@ -336,15 +354,49 @@ func (c *Conn) handleReconn(conn net.Conn, writeCount, readCount uint64) {
 		}
 	}()
 	c.trace("handleReconn() begin")
+	var (
+		buf    [24]byte
+		field1 = buf[0:8]
+		field2 = buf[8:16]
+		field3 = buf[16:24]
+	)
 
-	var buf [16]byte
-	binary.LittleEndian.PutUint64(buf[0:8], c.writeCount)
-	binary.LittleEndian.PutUint64(buf[8:16], c.readCount+c.rereader.count)
-	if _, err := conn.Write(buf[:16]); err != nil {
-		c.trace("response failed")
+	if writeCount < c.readCount || c.writeCount < readCount ||
+		int(c.writeCount-readCount) > len(c.rewriter.data) {
+		c.trace("data corruption(\"%s\", %d, %d), c.writeCount = %d, c.readCount = %d",
+			conn.RemoteAddr(), writeCount, readCount, c.writeCount, c.readCount)
+
+		conn.Write(buf[:])
 		return
 	}
 
+	binary.LittleEndian.PutUint64(field1, c.writeCount)
+	binary.LittleEndian.PutUint64(field2, c.readCount)
+	rand.Read(field3)
+	if _, err := conn.Write(buf[:]); err != nil {
+		c.trace("reconn response failed")
+		return
+	}
+
+	// 重连验证
+	c.trace("reconn check")
+	var buf2 [16]byte
+	if _, err := io.ReadFull(conn, buf2[:]); err != nil {
+		c.trace("read reconn check failed: %s", err)
+		return
+	}
+
+	hash := md5.New()
+	hash.Write(field3)
+	hash.Write(c.key[:])
+	md5sum := hash.Sum(nil)
+	if !bytes.Equal(buf2[:], md5sum) {
+		c.trace("reconn check not equals: %x, %x", buf2[:], md5sum)
+		return
+	}
+
+	// 验证成功，关闭旧连接
+	c.base.Close()
 	done = c.doReconn(conn, writeCount, readCount)
 }
 
@@ -373,15 +425,23 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 		return
 	}
 
-	var buf [24 + md5.Size]byte
+	var (
+		preBuf [1]byte
+		buf    [24 + md5.Size]byte
+		buf2   [24]byte
+		buf3   [md5.Size]byte
+	)
+
+	preBuf[0] = TYPE_RECONN
 	binary.LittleEndian.PutUint64(buf[0:8], c.id)
 	binary.LittleEndian.PutUint64(buf[8:16], c.writeCount)
-	binary.LittleEndian.PutUint64(buf[16:24], c.readCount+c.rereader.count)
+	binary.LittleEndian.PutUint64(buf[16:24], c.readCount)
 	hash := md5.New()
 	hash.Write(buf[0:24])
 	hash.Write(c.key[:])
 	copy(buf[24:], hash.Sum(nil))
 
+	// 尝试重连
 	for i := 0; !c.closed; i++ {
 		if i > 0 {
 			time.Sleep(time.Second * 3)
@@ -390,28 +450,61 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 		c.trace("reconn dial")
 		conn, err := c.dialer()
 		if err != nil {
-			c.trace("dial fialed: %v", err)
+			c.trace("dial failed: %v", err)
+			continue
+		}
+
+		c.trace("send reconn pre request")
+		if _, err = conn.Write(preBuf[:]); err != nil {
+			c.trace("write pre request failed: %v", err)
+			conn.Close()
 			continue
 		}
 
 		c.trace("send reconn request")
-		if _, err := conn.Write(buf[:]); err != nil {
-			c.trace("write fialed: %v", err)
+		if _, err = conn.Write(buf[:]); err != nil {
+			c.trace("write failed: %v", err)
 			conn.Close()
 			continue
 		}
 
 		c.trace("wait reconn response")
-		var buf2 [16]byte
-		if _, err := io.ReadFull(conn, buf2[:]); err != nil {
-			c.trace("read fialed", err.Error())
+		if _, err = io.ReadFull(conn, buf2[:]); err != nil {
+			c.trace("read failed: %v", err)
+			conn.Close()
+			continue
+		}
+		writeCount := binary.LittleEndian.Uint64(buf2[0:8])
+		readCount := binary.LittleEndian.Uint64(buf2[8:16])
+		challengeCode := binary.LittleEndian.Uint64(buf2[16:24])
+		if writeCount == 0 && readCount == 0 && challengeCode == 0 {
+			c.trace("The server refused to reconnect")
+			conn.Close()
+			c.Close()
+			break
+		}
+
+		c.trace("reconn check")
+		hash := md5.New()
+		hash.Write(buf2[16:24])
+		hash.Write(c.key[:])
+		copy(buf3[:], hash.Sum(nil))
+		if _, err = conn.Write(buf3[:]); err != nil {
+			c.trace("write reconn check response failed: %v", err)
 			conn.Close()
 			continue
 		}
 
-		writeCount := binary.LittleEndian.Uint64(buf2[0:8])
-		readCount := binary.LittleEndian.Uint64(buf2[8:16])
+		if writeCount < c.readCount || c.writeCount < readCount ||
+			int(c.writeCount-readCount) > len(c.rewriter.data) {
+			c.trace("Data corruption, cannot be reconnected")
+			conn.Close()
+			c.Close()
+			break
+		}
+
 		if c.doReconn(conn, writeCount, readCount) {
+			c.trace("reconn success")
 			done = true
 			break
 		}
@@ -419,40 +512,14 @@ func (c *Conn) tryReconn(badConn net.Conn) {
 	}
 }
 
-func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) (reconnDone bool) {
+func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) bool {
 	c.trace(
 		"doReconn(\"%s\", %d, %d), c.writeCount = %d, c.readCount = %d",
 		conn.RemoteAddr(), writeCount, readCount, c.writeCount, c.readCount,
 	)
 
-	if writeCount < c.readCount {
-		c.trace("writeCount < c.readCount")
-		return
-	}
-
-	if c.writeCount < readCount {
-		c.trace("c.writeCount < readCount")
-		return
-	}
-
-	if int(c.writeCount-readCount) > len(c.rewriter.data) {
-		c.trace("c.writeCount - readCount > len(c.rewriter.data)")
-		return
-	}
-
+	rereadWaitChan := make(chan bool)
 	if writeCount != c.readCount {
-		rereadWaitChan := make(chan bool)
-
-		defer func() {
-			c.trace("reread wait")
-			if !<-rereadWaitChan {
-				reconnDone = false
-				c.trace("reread failed")
-				return
-			}
-			c.trace("reread done")
-		}()
-
 		go func() {
 			n := int(writeCount) - int(c.readCount)
 			c.trace(
@@ -470,14 +537,22 @@ func (c *Conn) doReconn(conn net.Conn, writeCount, readCount uint64) (reconnDone
 		)
 		if !c.rewriter.Rewrite(conn, c.writeCount, readCount) {
 			c.trace("rewrite failed")
-			return
+			return false
 		}
 		c.trace("rewrite done")
 	}
 
+	if writeCount != c.readCount {
+		c.trace("reread wait")
+		if !<-rereadWaitChan {
+			c.trace("reread failed")
+			return false
+		}
+		c.trace("reread done")
+	}
+
 	c.base = conn
-	reconnDone = true
-	return
+	return true
 }
 
 func (c *Conn) wakeUp(readWaiting, writeWaiting bool) {
