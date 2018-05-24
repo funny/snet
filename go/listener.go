@@ -80,11 +80,11 @@ func (l *Listener) acceptLoop() {
 			}
 			break
 		}
-		go l.handlerAccept(conn)
+		go l.handAccept(conn)
 	}
 }
 
-func (l *Listener) handlerAccept(conn net.Conn) {
+func (l *Listener) handAccept(conn net.Conn) {
 	var buf [1]byte
 	if l.config.HandshakeTimeout > 0 {
 		conn.SetReadDeadline(time.Now().Add(l.config.HandshakeTimeout))
