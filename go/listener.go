@@ -80,20 +80,29 @@ func (l *Listener) acceptLoop() {
 			}
 			break
 		}
-		var buf [1]byte
-		if _, err := io.ReadFull(conn, buf[:]); err != nil {
-			conn.Close()
-			continue
-		}
+		go l.handlerAccept(conn)
+	}
+}
 
-		switch buf[0] {
-		case TYPE_NEWCONN:
-			go l.handshake(conn)
-		case TYPE_RECONN:
-			go l.reconn(conn)
-		default:
-			conn.Close()
-		}
+func (l *Listener) handlerAccept(conn net.Conn) {
+	var buf [1]byte
+	if l.config.HandshakeTimeout > 0 {
+		conn.SetReadDeadline(time.Now().Add(l.config.HandshakeTimeout))
+		defer conn.SetReadDeadline(time.Time{})
+	}
+
+	if _, err := io.ReadFull(conn, buf[:]); err != nil {
+		conn.Close()
+		return
+	}
+
+	switch buf[0] {
+	case TYPE_NEWCONN:
+		l.handshake(conn)
+	case TYPE_RECONN:
+		l.reconn(conn)
+	default:
+		conn.Close()
 	}
 }
 
